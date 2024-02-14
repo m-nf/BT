@@ -1,1 +1,1 @@
-# BT
+The project contains data preprocessing, identifying a distribution, ARIMA model fitting, and backtesting three strategies using Backtrader framework. It is designed to work with two datasets: the first with quotes of the currency pair EUR/USD (named as Tick data) and the second with trades of the cryptocurrency pair BTC/USDT (named as Binance data).
