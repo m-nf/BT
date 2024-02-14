@@ -1,0 +1,81 @@
+# It tests if data of time frames follow exponential distribution. Lenght of time frames is given by parameter t_delta.
+# It uses whole dataset and dataset cutted on treshold 2000 ms. That is 95th percentile.
+# Parameters must be set in this file in part "PARAMETERS SETTING".
+# Scripts needed to run before: see Data_preprocessing how to create Tick interarrival times
+# Data file needed: "EURUSD_2019_01_03_interarrivalTimes.csv"
+# It creates files: "EURUSD_expon_dist_5min_1KS.csv"
+
+import numpy as np
+import pandas as pd
+from datetime import datetime, timedelta
+from scipy import stats
+
+
+# PARAMETERS SETTING -------------------------------------------------------------------------------
+data_path = 'EURUSD_2019_01_03_interarrivalTimes.csv'
+result_path = 'EURUSD_expon_dist_5min_1KS.csv'
+t_delta = timedelta(minutes=5) # it determines the timeframe
+treshold = 2000  # where to cut data, 95th percentil
+alphas = {0.05} # {0.05, 0.01, 0.001}, confidence interval
+bounds =  [(0, 10), (0, 10)] # bounds for fitting distribution
+start_date = datetime(2019, 1, 3, 0, 0, 0)  # the datetime of beginning of file
+end_date = datetime(2019, 1, 3, 0, 0, 0) + t_delta
+# --------------------------------------------------------------------------------------------------
+
+data = pd.read_csv(data_path, header=0, index_col='ID', parse_dates=['Datetime'])
+results = pd.DataFrame(columns=['Time frame', 'alpha', 'pvalue_w', 'reject the null_w', 'pvalue_t', 'reject the null_t'])
+data_end = data['Datetime'].iloc[-1]
+
+df_counter = 0
+rej_counter_w = 0
+cannot_counter_w = 0
+rej_counter_t = 0
+cannot_counter_t = 0
+
+while(start_date < data_end):
+    part = data[(data['Datetime'] > start_date) & (data['Datetime'] < end_date)]
+    iat_w = np.array(part['Difference_number[ms]'].values)
+    part_treshold = part[part['Difference_number[ms]'] < treshold]
+    iat_t = np.array(part_treshold['Difference_number[ms]'].values)
+
+    dist_w = stats.fit(stats.expon, iat_w, bounds = bounds)
+    dist_t = stats.fit(stats.expon, iat_t, bounds = bounds)
+    
+    # H0 -> distributions are identical
+    ktest_w = stats.ks_1samp(x=iat_w, cdf=stats.expon.cdf, args=(dist_w.params.loc, dist_w.params.scale))
+    ktest_t = stats.ks_1samp(x=iat_t, cdf=stats.expon.cdf, args=(dist_t.params.loc, dist_t.params.scale))
+
+    # If there is more alphas ...
+    for alpha in alphas:
+        # both reject 
+        if ((ktest_w.pvalue < alpha) and (ktest_t.pvalue < alpha)):
+            results.loc[df_counter] = [start_date.strftime("%H:%M"), alpha, ktest_w.pvalue, 'REJECT', ktest_t.pvalue, 'REJECT']
+            rej_counter_w += 1
+            rej_counter_t += 1
+        # both cannot reject
+        elif ((ktest_w.pvalue > alpha) and (ktest_t.pvalue > alpha)):
+            results.loc[df_counter] = [start_date.strftime("%H:%M"), alpha, ktest_w.pvalue, 'CANNOT REJECT', ktest_t.pvalue, 'CANNOT REJECT']
+            cannot_counter_w += 1
+            cannot_counter_t +=1
+
+        # w - REJECT and t - CANNOT
+        elif ((ktest_w.pvalue < alpha) and (ktest_t.pvalue > alpha)):
+            results.loc[df_counter] = [start_date.strftime("%H:%M"), alpha, ktest_w.pvalue, 'REJECT', ktest_t.pvalue, 'CANNOT REJECT']
+            rej_counter_w += 1
+            cannot_counter_t += 1
+        # w - CANNOT and t -REJECT
+        elif ((ktest_w.pvalue > alpha) and (ktest_t.pvalue < alpha)):
+            results.loc[df_counter] = [start_date.strftime("%H:%M"), alpha, ktest_w.pvalue, 'CANNOT REJECT', ktest_t.pvalue, 'REJECT']
+            cannot_counter_w += 1
+            rej_counter_t += 1
+
+        df_counter += 1
+
+    start_date += t_delta
+    end_date += t_delta
+
+
+results.to_csv(result_path)
+
+print('W - rejected: ', rej_counter_w, '/', (cannot_counter_w + rej_counter_w))
+print('T - rejected: ', rej_counter_t, '/', (rej_counter_t + cannot_counter_t))
